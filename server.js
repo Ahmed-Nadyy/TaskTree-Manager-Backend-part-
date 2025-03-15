@@ -18,12 +18,27 @@ const app = express();
 app.use(cookieParser());
 
 // CORS Configuration
+const allowedOrigins = [
+    'http://localhost:5173',
+    'https://task-tree-ahmed-nady.netlify.app'
+];
+
 const corsOptions = {
-    origin: 'http://localhost:5173', 
+    origin: function (origin, callback) {
+        // allow requests with no origin like mobile apps or curl requests
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true, 
+    credentials: true,
 };
+
 
 app.use(cors(corsOptions));
 

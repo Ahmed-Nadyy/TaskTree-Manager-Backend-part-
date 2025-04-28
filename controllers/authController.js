@@ -17,37 +17,6 @@ const generateRefreshToken = (user) => {
 };
 
 
-const registerUser = async (req, res) => {
-    const { name, email, password } = req.body;
-    try {
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ error: "Email is already in use" });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = new User({ name, email, password: hashedPassword });
-        await user.save();
-
-        const accessToken = generateAccessToken(user);
-        const refreshToken = generateRefreshToken(user);
-
-        res.cookie("refreshToken", refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "Strict",
-        });
-
-        res.status(201).json({
-            message: "User registered successfully",
-            accessToken,
-            user: { id: user._id, name: user.name, email: user.email },
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
 const loginUser = async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -72,7 +41,12 @@ const loginUser = async (req, res) => {
 
         res.json({
             accessToken,
-            user: { id: user._id, name: user.name, email: user.email },
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email,
+                darkMode: user.darkMode
+            },
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -118,4 +92,66 @@ const verifyToken = (req, res) => {
     });
 };
 
-module.exports = { registerUser, loginUser, refreshToken, logoutUser, verifyToken };
+// Add new endpoint to update dark mode preference
+const updateDarkMode = async (req, res) => {
+    try {
+        const { darkMode } = req.body;
+        const userId = req.user._id;  // Get user ID from auth middleware
+
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { darkMode },
+            { new: true }
+        );
+
+        res.json({
+            success: true,
+            darkMode: user.darkMode
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const registerUser = async (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ error: "Email is already in use" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = new User({ 
+            name, 
+            email, 
+            password: hashedPassword,
+            darkMode: false // Initialize with light mode
+        });
+        await user.save();
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "Strict",
+        });
+
+        res.status(201).json({
+            message: "User registered successfully",
+            accessToken,
+            user: { 
+                id: user._id, 
+                name: user.name, 
+                email: user.email,
+                darkMode: user.darkMode
+            },
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+module.exports = { registerUser, loginUser, refreshToken, logoutUser, verifyToken, updateDarkMode };

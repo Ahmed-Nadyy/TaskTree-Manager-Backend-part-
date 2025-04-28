@@ -45,19 +45,41 @@ exports.deleteSection = async (req, res) => {
 };
 
 exports.addTask = async (req, res) => {
-    const { name, description } = req.body;
+    const { name, description, priority, isImportant, dueDate, tags } = req.body;
     try {
         const section = await Section.findById(req.params.id);
-        section.tasks.push({ name, description, isDone: false, subTasks: [] });
+        if (!section) {
+            return res.status(404).json({ message: "Section not found" });
+        }
+
+        const newTask = {
+            name,
+            description,
+            isDone: false,
+            priority: priority || 'low',
+            isImportant: isImportant || false,
+            dueDate: dueDate || null,
+            tags: tags || [],
+            subTasks: []
+        };
+
+        section.tasks.push(newTask);
         await section.save();
-        res.status(201).json(section);
+
+        // Return just the newly added task
+        const addedTask = section.tasks[section.tasks.length - 1];
+        res.status(201).json({
+            message: "Task added successfully",
+            task: addedTask
+        });
     } catch (error) {
-        res.status(500).json({ message: "Error adding task", error });
+        console.error("Error adding task:", error);
+        res.status(500).json({ message: "Error adding task", error: error.message });
     }
 };
 
 exports.updateTask = async (req, res) => {
-    const { name, description, isDone } = req.body;
+    const { name, description, isDone, priority, isImportant, dueDate, tags } = req.body;
 
     try {
         // Find section by ID
@@ -72,17 +94,41 @@ exports.updateTask = async (req, res) => {
             return res.status(404).json({ message: "Task not found" });
         }
 
-        // Update task properties (only if values are provided)
+        // Update task properties only if values are provided
         if (name !== undefined) task.name = name;
         if (description !== undefined) task.description = description;
-        if (isDone !== undefined) task.isDone = isDone;
+        if (isDone !== undefined) {
+            task.isDone = isDone;
+            // If marking task as done, check if it has subtasks
+            if (isDone && task.subTasks && task.subTasks.length > 0) {
+                // Mark all subtasks as done
+                task.subTasks.forEach(subtask => {
+                    subtask.isDone = true;
+                });
+            }
+        }
+        if (priority !== undefined) task.priority = priority;
+        if (isImportant !== undefined) task.isImportant = isImportant;
+        if (dueDate !== undefined) task.dueDate = dueDate;
+        if (tags !== undefined) task.tags = tags;
+
+        // Mark as modified to ensure Mongoose detects the changes
+        section.markModified("tasks");
 
         await section.save();
 
-        res.status(200).json({ message: "Task updated successfully", task });
+        res.status(200).json({ 
+            message: "Task updated successfully", 
+            task,
+            success: true
+        });
     } catch (error) {
         console.error("Error updating task:", error);
-        res.status(500).json({ message: "Error updating task", error: error.message });
+        res.status(500).json({ 
+            message: "Error updating task", 
+            error: error.message,
+            success: false
+        });
     }
 };
 
@@ -119,31 +165,69 @@ exports.markTaskAsDone = async (req, res) => {
     try {
         const { sectionId, taskId } = req.params;
 
+        // --- CHANGE: Check if isDone is explicitly provided in the body ---
+        if (req.body.isDone === undefined || typeof req.body.isDone !== 'boolean') {
+            return res.status(400).json({
+                message: "Request body must contain an 'isDone' property with a boolean value (true or false).",
+                success: false
+            });
+        }
+        const isDone = req.body.isDone; // Get the boolean value directly from the body
+        // --- END CHANGE ---
+
+        console.log(`Attempting to mark task ${taskId} in section ${sectionId} as: ${isDone}`);
+
         // Find the section containing the task
         const section = await Section.findById(sectionId);
         if (!section) {
-            return res.status(404).json({ message: "Section not found" });
+            console.log(`Section not found: ${sectionId}`);
+            return res.status(404).json({ message: "Section not found", success: false });
         }
 
-        // Find the task within the section
+        // Find the task within the section's tasks array
         const task = section.tasks.id(taskId);
         if (!task) {
-            return res.status(404).json({ message: "Task not found" });
+            console.log(`Task not found: ${taskId} in section ${sectionId}`);
+            return res.status(404).json({ message: "Task not found", success: false });
         }
 
-        // Mark task as done
-        task.isDone = true;
+        // --- Update the task's status ---
+        task.isDone = isDone;
+        // --- End Update ---
 
-        // Mark the `tasks` array as modified before saving
+        // --- Logic related to subtasks when marking the PARENT task ---
+        // If marking parent task as DONE, mark all its subtasks as DONE.
+        if (isDone && task.subTasks && task.subTasks.length > 0) {
+            console.log(`Marking all subtasks as done for task ${taskId}`);
+            task.subTasks.forEach(subtask => {
+                subtask.isDone = true;
+            });
+        }
+        // If marking parent task as NOT DONE, you might want to ensure at least one subtask is also not done,
+        // but typically unchecking the parent implies the overall task isn't finished, regardless of subtasks.
+        // No automatic change to subtasks is usually needed when setting parent task.isDone = false.
+
+        // Mark the `tasks` array as modified to ensure Mongoose detects the change in the nested document
         section.markModified("tasks");
 
-        // Save the section with updated task
+        // Save the section with the updated task
         await section.save();
+        console.log(`Task ${taskId} status updated successfully to ${isDone}`);
 
-        res.status(200).json({ message: "Task marked as done", task });
+        // Return the updated task data
+        res.status(200).json({
+            message: isDone ? "Task marked as done" : "Task marked as incomplete",
+            task: task, // Send back the updated task object
+            success: true
+        });
+
     } catch (error) {
-        console.error("Error marking task as done:", error);
-        res.status(500).json({ message: "Error marking task as done", error: error.message });
+        console.error("Error marking task status:", error);
+        res.status(500).json({
+            message: "Error marking task status",
+            error: error.message,
+            success: false
+        });
     }
 };
 

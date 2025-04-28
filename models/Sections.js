@@ -6,9 +6,13 @@ const SubTaskSchema = new mongoose.Schema({
 });
 
 const TaskSchema = new mongoose.Schema({
-    name: String,
+    name: { type: String, required: true },
     description: String,
     isDone: { type: Boolean, default: false },
+    priority: { type: String, enum: ['low', 'medium', 'high'], default: 'low' , required: true },
+    isImportant: { type: Boolean, default: false, required: true },
+    dueDate: {type:Date, required: false},
+    tags: [String],
     subTasks: [SubTaskSchema],
 });
 

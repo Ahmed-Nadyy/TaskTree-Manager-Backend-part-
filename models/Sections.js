@@ -14,12 +14,24 @@ const TaskSchema = new mongoose.Schema({
     dueDate: {type:Date, required: false},
     tags: [String],
     subTasks: [SubTaskSchema],
+    assignedTo: [{
+        email: { type: String },
+        status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' }
+    }],
+    creator: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    lastNotified: { type: Date }
 });
 
 const SectionSchema = new mongoose.Schema({
     userId: mongoose.Schema.Types.ObjectId,
     name: String,
     tasks: [TaskSchema],
+    isPublic: { type: Boolean, default: false },
+    shareToken: { type: String, unique: true, sparse: true },
+    sharedWith: [{
+        email: { type: String },
+        accessLevel: { type: String, enum: ['read', 'write'], default: 'read' }
+    }]
 });
 
 // Export the model

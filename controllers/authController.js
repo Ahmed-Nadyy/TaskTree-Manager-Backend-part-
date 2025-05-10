@@ -1,21 +1,32 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const { generateOTP, isOTPExpired } = require('../utils/otpService');
+const { sendOTPEmail, verifyTransporter } = require('../utils/emailService');
 
 let refreshTokens = []; // Store refresh tokens temporarily (use DB in production)
 
-// 🔹 Generate Access Token (Short-lived)
+// Generate Access Token (Short-lived)
 const generateAccessToken = (user) => {
-    return jwt.sign({ userId: user._id }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "30m" });
+    return jwt.sign({ 
+        userId: user._id, 
+        role: user.role 
+    }, process.env.ACCESS_TOKEN_SECRET, { 
+        expiresIn: "30m" 
+    });
 };
 
-// 🔹 Generate Refresh Token (Long-lived)
+// Generate Refresh Token (Long-lived)
 const generateRefreshToken = (user) => {
-    const refreshToken = jwt.sign({ userId: user._id }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: "7d" });
+    const refreshToken = jwt.sign({ 
+        userId: user._id,
+        role: user.role
+    }, process.env.REFRESH_TOKEN_SECRET, { 
+        expiresIn: "7d" 
+    });
     refreshTokens.push(refreshToken);
     return refreshToken;
 };
-
 
 const loginUser = async (req, res) => {
     const { email, password } = req.body;
@@ -23,6 +34,10 @@ const loginUser = async (req, res) => {
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(401).json({ error: "Email not found" });
+        }
+
+        if (!user.isVerified) {
+            return res.status(401).json({ error: "Please verify your email first" });
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -37,14 +52,13 @@ const loginUser = async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "Strict",
-        });
-
-        res.json({
+        });        res.json({
             accessToken,
             user: { 
                 id: user._id, 
                 name: user.name, 
                 email: user.email,
+                role: user.role,
                 darkMode: user.darkMode
             },
         });
@@ -53,10 +67,10 @@ const loginUser = async (req, res) => {
     }
 };
 
-
-// 🔹 Refresh Token Route
+// Refresh Token Route
 const refreshToken = (req, res) => {
     const refreshToken = req.cookies.refreshToken;
+    console.log("Refresh Token:", refreshToken);
     if (!refreshToken || !refreshTokens.includes(refreshToken)) {
         return res.status(403).json({ message: "Forbidden" });
     }
@@ -68,28 +82,42 @@ const refreshToken = (req, res) => {
     });
 };
 
-// 🔹 Logout Route
+// Logout Route
 const logoutUser = (req, res) => {
     refreshTokens = refreshTokens.filter((token) => token !== req.cookies.refreshToken);
     res.clearCookie("refreshToken");
     res.json({ message: "Logged out successfully" });
 };
 
-// 🔹 Verify Token Route
-const verifyToken = (req, res) => {
-    const token = req.headers['authorization']?.split(' ')[1];  // Extract token from Authorization header
+// Verify Token Route
+const verifyToken = async (req, res) => {
+    const token = req.headers['authorization']?.split(' ')[1];  
 
     if (!token) {
         return res.status(403).json({ message: 'Token is required' });
     }
 
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
-        if (err) {
-            return res.status(403).json({ message: 'Invalid or expired token' });
+    try {
+        const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        const user = await User.findById(decoded.userId);
+        
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
-        res.status(200).json({ message: 'Token is valid', id: user.userId });
-    });
+        res.status(200).json({ 
+            message: 'Token is valid', 
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                darkMode: user.darkMode
+            }
+        });
+    } catch (err) {
+        return res.status(403).json({ message: 'Invalid or expired token' });
+    }
 };
 
 // Add new endpoint to update dark mode preference
@@ -113,22 +141,94 @@ const updateDarkMode = async (req, res) => {
     }
 };
 
+// Register new user with OTP
 const registerUser = async (req, res) => {
-    const { name, email, password } = req.body;
+    console.log('Registration request received:', req.body);
+    const { name, email, password, role = 'solo' } = req.body;
+
     try {
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ error: "Email is already in use" });
+        // Verify email service first
+        const isEmailServiceReady = await verifyTransporter();
+        if (!isEmailServiceReady) {
+            return res.status(500).json({ error: "Email service is not available" });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = new User({ 
-            name, 
-            email, 
+        // Check if user already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ error: "Email already registered" });
+        }
+
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // Generate OTP
+        const otp = generateOTP();
+        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        // Create user with unverified status
+        const user = new User({
+            name,
+            email,
             password: hashedPassword,
-            darkMode: false // Initialize with light mode
+            role,
+            isVerified: false,
+            otp: {
+                code: otp,
+                createdAt: new Date(),
+                expiresAt: otpExpiry
+            }
         });
+
         await user.save();
+        console.log('User saved successfully:', user._id);
+
+        // Send OTP email
+        await sendOTPEmail(email, otp);
+        console.log('OTP email sent successfully');
+
+        res.status(201).json({ 
+            message: "Registration successful. Please check your email for verification code.",
+            userId: user._id 
+        });
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ 
+            error: "Registration failed", 
+            details: error.message 
+        });
+    }
+};
+
+// Verify OTP
+const verifyOTP = async (req, res) => {
+    console.log('OTP verification request received:', req.body);
+    const { userId, otp } = req.body;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({ error: "Email already verified" });
+        }
+
+        if (!user.otp || !user.otp.code || isOTPExpired(user.otp.expiresAt)) {
+            return res.status(400).json({ error: "OTP expired" });
+        }
+
+        if (user.otp.code !== otp) {
+            return res.status(400).json({ error: "Invalid OTP" });
+        }
+
+        // Verify user and clear OTP
+        user.isVerified = true;
+        user.otp = undefined;
+        await user.save();
+        console.log('User verified successfully:', user._id);
 
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
@@ -139,19 +239,74 @@ const registerUser = async (req, res) => {
             sameSite: "Strict",
         });
 
-        res.status(201).json({
-            message: "User registered successfully",
+        res.json({
+            message: "Email verified successfully",
             accessToken,
-            user: { 
-                id: user._id, 
-                name: user.name, 
+            user: {
+                id: user._id,
+                name: user.name,
                 email: user.email,
-                darkMode: user.darkMode
-            },
+                darkMode: user.darkMode,
+                role: user.role
+            }
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('OTP verification error:', error);
+        res.status(500).json({ 
+            error: "Verification failed",
+            details: error.message 
+        });
     }
 };
 
-module.exports = { registerUser, loginUser, refreshToken, logoutUser, verifyToken, updateDarkMode };
+// Resend OTP
+const resendOTP = async (req, res) => {
+    console.log('Resend OTP request received:', req.body);
+    const { userId } = req.body;
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({ error: "Email already verified" });
+        }
+
+        // Generate new OTP
+        const otp = generateOTP();
+        const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        user.otp = {
+            code: otp,
+            createdAt: new Date(),
+            expiresAt: otpExpiry
+        };
+        await user.save();
+        console.log('New OTP generated for user:', user._id);
+
+        // Send new OTP email
+        await sendOTPEmail(user.email, otp);
+        console.log('New OTP email sent successfully');
+
+        res.json({ message: "New verification code sent successfully" });
+    } catch (error) {
+        console.error('Resend OTP error:', error);
+        res.status(500).json({ 
+            error: "Failed to resend verification code",
+            details: error.message 
+        });
+    }
+};
+
+module.exports = {
+    registerUser,
+    loginUser,
+    refreshToken,
+    logoutUser,
+    verifyToken,
+    updateDarkMode,
+    verifyOTP,
+    resendOTP
+};

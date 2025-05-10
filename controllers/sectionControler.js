@@ -1,4 +1,6 @@
 const Section = require('../models/Sections');
+const { v4: uuidv4 } = require('uuid');
+const { sendTaskAssignmentEmail } = require('../utils/emailService');
 
 exports.addSection = async (req, res) => {
     const { userId, name } = req.body;
@@ -44,8 +46,7 @@ exports.deleteSection = async (req, res) => {
     }
 };
 
-exports.addTask = async (req, res) => {
-    const { name, description, priority, isImportant, dueDate, tags } = req.body;
+exports.addTask = async (req, res) => {    const { name, description, priority, isImportant, dueDate, tags, assignedTo } = req.body;
     try {
         const section = await Section.findById(req.params.id);
         if (!section) {
@@ -60,6 +61,7 @@ exports.addTask = async (req, res) => {
             isImportant: isImportant || false,
             dueDate: dueDate || null,
             tags: tags || [],
+            assignedTo: assignedTo || [],
             subTasks: []
         };
 
@@ -231,8 +233,6 @@ exports.markTaskAsDone = async (req, res) => {
     }
 };
 
-
-
 exports.addSubTask = async (req, res) => {
     const { name } = req.body;
     try {
@@ -270,7 +270,6 @@ exports.addSubTask = async (req, res) => {
         res.status(500).json({ message: "Error adding subtask", error: error.message });
     }
 };
-
 
 exports.updateSubTask = async (req, res) => {
     const { name, isDone } = req.body;
@@ -344,5 +343,92 @@ exports.markSubTaskAsDone = async (req, res) => {
     } catch (error) {
         console.error("Error marking subtask as done:", error);
         res.status(500).json({ message: "Error marking subtask as done", error: error.message });
+    }
+};
+
+exports.shareSection = async (req, res) => {
+    try {
+        const section = await Section.findById(req.params.sectionId);
+        
+        if (!section) {
+            return res.status(404).json({ error: "Section not found" });
+        }
+
+        // Generate share token if it doesn't exist
+        if (!section.shareToken) {
+            section.shareToken = uuidv4();
+            section.isPublic = true;
+            await section.save();
+        }
+
+        res.json({ 
+            shareToken: section.shareToken,
+            message: "Section shared successfully" 
+        });
+    } catch (error) {
+        console.error('Share section error:', error);
+        res.status(500).json({ 
+            error: "Failed to share section",
+            details: error.message 
+        });
+    }
+};
+
+exports.getSharedSection = async (req, res) => {
+    try {
+        const section = await Section.findOne({ 
+            shareToken: req.params.token,
+            isPublic: true 
+        });
+
+        if (!section) {
+            return res.status(404).json({ error: "Shared section not found or no longer public" });
+        }
+
+        res.json(section);
+    } catch (error) {
+        console.error('Get shared section error:', error);
+        res.status(500).json({ 
+            error: "Failed to get shared section",
+            details: error.message 
+        });
+    }
+};
+
+exports.assignTask = async (req, res) => {
+    try {
+        const { taskId, sectionId } = req.params;
+        const { emails } = req.body;
+
+        const section = await Section.findById(sectionId);
+        if (!section) {
+            return res.status(404).json({ error: "Section not found" });
+        }
+
+        const task = section.tasks.id(taskId);
+        if (!task) {
+            return res.status(404).json({ error: "Task not found" });
+        }
+
+        // Update task assignees
+        task.assignedTo = emails.map(email => ({ email }));
+        await section.save();
+
+        // Send email notifications
+        const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${sectionId}/${taskId}`;
+        for (const email of emails) {
+            await sendTaskAssignmentEmail(email, task, taskLink);
+        }
+
+        res.json({ 
+            message: "Task assigned successfully",
+            task 
+        });
+    } catch (error) {
+        console.error('Assign task error:', error);
+        res.status(500).json({ 
+            error: "Failed to assign task",
+            details: error.message 
+        });
     }
 };

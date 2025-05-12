@@ -11,9 +11,11 @@ const sectionRoutes = require('./routes/sectionRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const subTaskRoutes = require('./routes/subTaskRoutes');
 const helmet = require('helmet'); // Added for security headers
+const { verifyTransporter } = require('./utils/emailService'); // Import verifyTransporter
 
 dotenv.config();
 connectDB();
+verifyTransporter(); // Verify email service configuration at startup
 
 const app = express();
 app.use(helmet()); // Use helmet for security headers

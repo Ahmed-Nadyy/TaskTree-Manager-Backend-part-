@@ -82,6 +82,23 @@ exports.addTask = async (req, res) => {    const { name, description, priority, 
 
         // Return just the newly added task
         const addedTask = section.tasks[section.tasks.length - 1];
+
+        // Send email notifications if assignees are provided
+        if (addedTask.assignedTo && Array.isArray(addedTask.assignedTo) && addedTask.assignedTo.length > 0) {
+            const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${addedTask._id}`;
+            console.log('Task created, sending emails to:', addedTask.assignedTo.map(a => a.email));
+            for (const assignee of addedTask.assignedTo) {
+                if (assignee.email) {
+                    try {
+                        const result = await sendTaskAssignmentEmail(assignee.email, addedTask, taskLink);
+                        console.log(`Email sent to ${assignee.email} for new task:`, result);
+                    } catch (err) {
+                        console.error(`Failed to send email to ${assignee.email} for new task:`, err.message);
+                    }
+                }
+            }
+        }
+
         res.status(201).json({
             message: "Task added successfully",
             task: addedTask
@@ -417,14 +434,40 @@ exports.getSharedSection = async (req, res) => {
     try {
         const section = await Section.findOne({ 
             shareToken: req.params.token,
-            isPublic: true 
+            // isPublic: true // We will rely on isPubliclyViewable now
         });
 
         if (!section) {
-            return res.status(404).json({ error: "Shared section not found or no longer public" });
+            return res.status(404).json({ error: "Shared section not found or link is invalid." });
         }
 
-        res.json(section);
+        // Check if the section is publicly viewable
+        if (!section.isPubliclyViewable) {
+            return res.status(403).json({ error: "This section is not currently shared publicly." });
+        }
+        
+        // Optionally, you might want to select which fields to return for a shared view
+        // For example, exclude userId or other sensitive info if necessary
+        const sharedSectionData = {
+            _id: section._id,
+            name: section.name,
+            tasks: section.tasks.map(task => ({
+                _id: task._id,
+                name: task.name,
+                description: task.description,
+                isDone: task.isDone,
+                priority: task.priority,
+                dueDate: task.dueDate,
+                tags: task.tags,
+                subTasks: task.subTasks.map(st => ({ _id: st._id, name: st.name, isDone: st.isDone })),
+                assignedTo: task.assignedTo.map(at => ({ email: at.email })) // Only show email for privacy
+            })),
+            isPubliclyViewable: section.isPubliclyViewable
+            // Add any other fields you want to expose
+        };
+
+
+        res.json(sharedSectionData);
     } catch (error) {
         console.error('Get shared section error:', error);
         res.status(500).json({ 
@@ -457,6 +500,7 @@ exports.assignTask = async (req, res) => {
         const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${sectionId}/${taskId}`;
         console.log('Assigning task, sending emails to:', emails);
         for (const email of emails) {
+            console.log("I am in this email");
             try {
                 const result = await sendTaskAssignmentEmail(email, task, taskLink);
                 console.log(`Email sent to ${email}:`, result);
@@ -475,5 +519,44 @@ exports.assignTask = async (req, res) => {
             error: "Failed to assign task",
             details: error.message 
         });
+    }
+};
+
+exports.togglePublicView = async (req, res) => {
+    try {
+        const { sectionId } = req.params;
+        const section = await Section.findById(sectionId);
+
+        if (!section) {
+            return res.status(404).json({ message: "Section not found." });
+        }
+
+        // Toggle the isPubliclyViewable status
+        section.isPubliclyViewable = !section.isPubliclyViewable;
+
+        // If making it publicly viewable and no shareToken exists, create one
+        if (section.isPubliclyViewable && !section.shareToken) {
+            section.shareToken = uuidv4();
+            section.isPublic = true; // Also set isPublic to true if we are generating a token
+        }
+        
+        // If making it not publicly viewable, you might also want to nullify the shareToken
+        // or change isPublic, depending on desired logic. For now, we'll just toggle viewability.
+
+        await section.save();
+
+        res.status(200).json({
+            message: `Section is now ${section.isPubliclyViewable ? 'publicly viewable' : 'not publicly viewable'}.`,
+            section: {
+                _id: section._id,
+                name: section.name,
+                isPubliclyViewable: section.isPubliclyViewable,
+                shareToken: section.shareToken,
+                isPublic: section.isPublic
+            }
+        });
+    } catch (error) {
+        console.error("Error toggling public view status:", error);
+        res.status(500).json({ message: "Failed to toggle public view status.", error: error.message });
     }
 };

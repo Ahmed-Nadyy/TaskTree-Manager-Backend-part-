@@ -18,7 +18,7 @@ const verifyTransporter = async () => {
         console.log('Email service is ready to send emails');
         return true;
     } catch (error) {
-        console.error('Email service verification failed:', error.message);
+        console.error('Email service verification failed. Full error:', error);
         return false;
     }
 };
@@ -78,10 +78,11 @@ const sendTaskAssignmentEmail = async (to, task, link) => {
     };
 
     try {
-        await transporter.sendMail(mailOptions);
+        const info = await transporter.sendMail(mailOptions);
+        console.log('Email sent successfully to:', to, 'Message ID:', info.messageId);
         return true;
     } catch (error) {
-        console.error('Email sending failed:', error.message);
+        console.error('Full error sending email to:', to, error); // Log the full error object
         return false;
     }
 };
@@ -107,10 +108,11 @@ const sendSubtaskNotificationEmail = async (to, taskName, subtaskName, link) => 
     };
 
     try {
-        await transporter.sendMail(mailOptions);
+        const info = await transporter.sendMail(mailOptions);
+        console.log('Email sent successfully to:', to, 'Message ID:', info.messageId);
         return true;
     } catch (error) {
-        console.error('Email sending failed:', error.message);
+        console.error('Full error sending email to:', to, error); // Log the full error object
         return false;
     }
 };

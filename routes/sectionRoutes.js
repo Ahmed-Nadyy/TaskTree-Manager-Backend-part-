@@ -11,12 +11,16 @@ const {
     markTaskAsDone,
     shareSection,
     getSharedSection,
-    assignTask
+    assignTask,
+    togglePublicView // Added new controller function
 } = require('../controllers/sectionControler');
 
 const router = express.Router();
 
-// Protect all routes except shared section access
+// Public route for accessing shared sections (no auth required)
+router.get('/shared/:token', getSharedSection);
+
+// Protect all other routes
 router.use(protect);
 
 // Standard section routes
@@ -35,7 +39,8 @@ router.put('/:sectionId/tasks/:taskId/done', markTaskAsDone);
 router.post('/:sectionId/share', shareSection);
 router.post('/:sectionId/tasks/:taskId/assign', assignTask);
 
-// Public route for accessing shared sections (no auth required)
-router.get('/shared/:token', getSharedSection);
+// Route to toggle public view status of a section
+router.put('/:sectionId/toggle-public-view', togglePublicView);
+
 
 module.exports = router;

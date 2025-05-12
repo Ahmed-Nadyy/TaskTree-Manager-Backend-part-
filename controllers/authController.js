@@ -170,7 +170,11 @@ const registerUser = async (req, res) => {
         // Verify email service first
         const isEmailServiceReady = await verifyTransporter();
         if (!isEmailServiceReady) {
-            return res.status(500).json({ error: "Email service is not available" });
+            // Attempt to get a more specific error message if possible
+            // This part is a bit speculative as verifyTransporter itself doesn't return the error object directly
+            // but we can log more details on the server side in verifyTransporter
+            console.error('Email service not ready during user registration for email:', email);
+            return res.status(500).json({ error: "Email service is not available. Please check server logs for more details." });
         }
 
         // Check if user already exists

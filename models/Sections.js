@@ -28,6 +28,7 @@ const SectionSchema = new mongoose.Schema({
     tasks: [TaskSchema],
     isPublic: { type: Boolean, default: false },
     shareToken: { type: String, unique: true, sparse: true },
+    isPubliclyViewable: { type: Boolean, default: false },
     sharedWith: [{
         email: { type: String },
         accessLevel: { type: String, enum: ['read', 'write'], default: 'read' }

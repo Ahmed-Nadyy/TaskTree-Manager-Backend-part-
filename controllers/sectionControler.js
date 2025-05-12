@@ -4,13 +4,16 @@ const { sendTaskAssignmentEmail } = require('../utils/emailService');
 
 exports.addSection = async (req, res) => {
     const { userId, name } = req.body;
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+        return res.status(400).json({ message: "Section name is required and must be a non-empty string." });
+    }
     try {
-        const section = new Section({ userId, name, tasks: [] });
+        const section = new Section({ userId, name: name.trim(), tasks: [] });
         await section.save();
         res.status(201).json(section);
     } catch (error) {
         //console.error("Error creating section:", error); 
-        res.status(500).json({ message: "Error creating section", error: error.message });
+        res.status(500).json({ message: "Failed to create section.", error: error.message });
     }
 };
 
@@ -25,15 +28,21 @@ exports.getSection = async (req, res) => {
 
 exports.updateSection = async (req, res) => {
     const { name } = req.body;
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+        return res.status(400).json({ message: "Section name is required and must be a non-empty string for update." });
+    }
     try {
         const section = await Section.findByIdAndUpdate(
             req.params.id,
-            { name },
-            { new: true }
+            { name: name.trim() },
+            { new: true, runValidators: true } // Added runValidators
         );
+        if (!section) {
+            return res.status(404).json({ message: "Section not found for update." });
+        }
         res.status(200).json(section);
     } catch (error) {
-        res.status(500).json({ message: "Error updating section", error });
+        res.status(500).json({ message: "Failed to update section.", error: error.message });
     }
 };
 
@@ -47,14 +56,17 @@ exports.deleteSection = async (req, res) => {
 };
 
 exports.addTask = async (req, res) => {    const { name, description, priority, isImportant, dueDate, tags, assignedTo } = req.body;
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+        return res.status(400).json({ message: "Task name is required and must be a non-empty string." });
+    }
     try {
         const section = await Section.findById(req.params.id);
         if (!section) {
-            return res.status(404).json({ message: "Section not found" });
+            return res.status(404).json({ message: "Section not found when trying to add task." });
         }
 
         const newTask = {
-            name,
+            name: name.trim(),
             description,
             isDone: false,
             priority: priority || 'low',
@@ -235,28 +247,36 @@ exports.markTaskAsDone = async (req, res) => {
 
 exports.addSubTask = async (req, res) => {
     const { name } = req.body;
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+        return res.status(400).json({ message: "Subtask name is required and must be a non-empty string." });
+    }
     try {
         const section = await Section.findById(req.params.sectionId);
-        
         if (!section) {
-            return res.status(404).json({ message: "Section not found" });
+            return res.status(404).json({ message: "Section not found when trying to add subtask." });
         }
-
         const task = section.tasks.id(req.params.taskId);
-
         if (task) {
             // Push the new subtask
-            task.subTasks.push({ name, isDone: false });
-
+            task.subTasks.push({ name: name.trim(), isDone: false });
             // When a new subtask is added, make sure the task is marked as not done
             task.isDone = false;
-
             // Save changes to the section (which includes tasks and subtasks)
             await section.save();
-
             // Optionally you can return the newly added subtask instead of the whole section
             const addedSubTask = task.subTasks[task.subTasks.length - 1];
-
+            // Send email notifications to assigned users if any
+            if (task.assignedTo && Array.isArray(task.assignedTo) && task.assignedTo.length > 0) {
+                const { sendSubtaskNotificationEmail } = require('../utils/emailService');
+                const taskName = task.name;
+                const subtaskName = addedSubTask.name;
+                const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${task._id}`;
+                for (const assignee of task.assignedTo) {
+                    if (assignee.email) {
+                        await sendSubtaskNotificationEmail(assignee.email, taskName, subtaskName, taskLink);
+                    }
+                }
+            }
             res.status(201).json({
                 message: "SubTask added successfully",
                 subTask: addedSubTask,
@@ -267,26 +287,45 @@ exports.addSubTask = async (req, res) => {
         }
     } catch (error) {
         console.error("Error adding subtask:", error);
-        res.status(500).json({ message: "Error adding subtask", error: error.message });
+        res.status(500).json({ message: "Failed to add subtask.", error: error.message });
     }
 };
 
 exports.updateSubTask = async (req, res) => {
     const { name, isDone } = req.body;
+    // Validate name if provided
+    if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
+        return res.status(400).json({ message: "Subtask name must be a non-empty string if provided." });
+    }
+    // Validate isDone if provided
+    if (isDone !== undefined && typeof isDone !== 'boolean'){
+        return res.status(400).json({ message: "isDone must be a boolean value if provided." });
+    }
+
     try {
         const section = await Section.findById(req.params.sectionId);
-        const task = section.tasks.id(req.params.taskId);
-        const subTask = task.subTasks.id(req.params.subTaskId);
-        if (subTask) {
-            subTask.name = name;
-            subTask.isDone = isDone;
-            await section.save();
-            res.status(200).json(section);
-        } else {
-            res.status(404).json({ message: "Subtask not found" });
+        if (!section) {
+            return res.status(404).json({ message: "Section not found for subtask update." });
         }
+        const task = section.tasks.id(req.params.taskId);
+        if (!task) {
+            return res.status(404).json({ message: "Task not found for subtask update." });
+        }
+        const subTask = task.subTasks.id(req.params.subTaskId);
+        if (!subTask) {
+            return res.status(404).json({ message: "Subtask not found for update." });
+        }
+        
+        if (name !== undefined) subTask.name = name.trim();
+        if (isDone !== undefined) subTask.isDone = isDone;
+        
+        await section.save();
+        res.status(200).json({ 
+            message: "Subtask updated successfully", 
+            subTask 
+        });
     } catch (error) {
-        res.status(500).json({ message: "Error updating subtask", error });
+        res.status(500).json({ message: "Failed to update subtask.", error: error.message });
     }
 };
 
@@ -416,8 +455,14 @@ exports.assignTask = async (req, res) => {
 
         // Send email notifications
         const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${sectionId}/${taskId}`;
+        console.log('Assigning task, sending emails to:', emails);
         for (const email of emails) {
-            await sendTaskAssignmentEmail(email, task, taskLink);
+            try {
+                const result = await sendTaskAssignmentEmail(email, task, taskLink);
+                console.log(`Email sent to ${email}:`, result);
+            } catch (err) {
+                console.error(`Failed to send email to ${email}:`, err.message);
+            }
         }
 
         res.json({ 

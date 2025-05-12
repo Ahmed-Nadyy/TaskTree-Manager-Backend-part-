@@ -10,11 +10,13 @@ const authRoutes = require('./routes/authRoutes');
 const sectionRoutes = require('./routes/sectionRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const subTaskRoutes = require('./routes/subTaskRoutes');
+const helmet = require('helmet'); // Added for security headers
 
 dotenv.config();
 connectDB();
 
 const app = express();
+app.use(helmet()); // Use helmet for security headers
 app.use(cookieParser());
 
 // CORS Configuration
@@ -67,6 +69,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/subtasks', subTaskRoutes);
+
+// Global error handler
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

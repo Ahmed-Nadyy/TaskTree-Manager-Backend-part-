@@ -3,8 +3,28 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { generateOTP, isOTPExpired } = require('../utils/otpService');
 const { sendOTPEmail, verifyTransporter } = require('../utils/emailService');
+const rateLimit = require('express-rate-limit');
 
-let refreshTokens = []; // Store refresh tokens temporarily (use DB in production)
+// IMPORTANT: In a production environment, refresh tokens should be stored in a persistent database (e.g., Redis, MongoDB)
+// not in an in-memory array, as this will be cleared on server restart and does not scale.
+let refreshTokens = []; 
+
+// Rate limiting for login and OTP requests
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // limit each IP to 10 requests per windowMs
+    message: 'Too many requests from this IP, please try again after 15 minutes',
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+const otpLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 5, // limit each IP to 5 requests per windowMs
+    message: 'Too many OTP requests from this IP, please try again after 5 minutes',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // Generate Access Token (Short-lived)
 const generateAccessToken = (user) => {
@@ -301,12 +321,12 @@ const resendOTP = async (req, res) => {
 };
 
 module.exports = {
-    registerUser,
-    loginUser,
+    registerUser: [otpLimiter, registerUser],
+    loginUser: [authLimiter, loginUser],
     refreshToken,
     logoutUser,
     verifyToken,
     updateDarkMode,
-    verifyOTP,
-    resendOTP
+    verifyOTP: [otpLimiter, verifyOTP],
+    resendOTP: [otpLimiter, resendOTP]
 };

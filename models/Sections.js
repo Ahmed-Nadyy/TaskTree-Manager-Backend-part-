@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const SubTaskSchema = new mongoose.Schema({
     name: String,
     isDone: { type: Boolean, default: false },
+    status: { type: String, enum: ['pending', 'in progress', 'done'], default: 'pending' }
 });
 
 const TaskSchema = new mongoose.Schema({

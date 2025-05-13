@@ -275,7 +275,7 @@ exports.addSubTask = async (req, res) => {
         const task = section.tasks.id(req.params.taskId);
         if (task) {
             // Push the new subtask
-            task.subTasks.push({ name: name.trim(), isDone: false });
+            task.subTasks.push({ name: name.trim(), isDone: false, status: 'pending' });
             // When a new subtask is added, make sure the task is marked as not done
             task.isDone = false;
             // Save changes to the section (which includes tasks and subtasks)
@@ -309,7 +309,7 @@ exports.addSubTask = async (req, res) => {
 };
 
 exports.updateSubTask = async (req, res) => {
-    const { name, isDone } = req.body;
+    const { name, isDone, status } = req.body;
     // Validate name if provided
     if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
         return res.status(400).json({ message: "Subtask name must be a non-empty string if provided." });
@@ -335,6 +335,7 @@ exports.updateSubTask = async (req, res) => {
         
         if (name !== undefined) subTask.name = name.trim();
         if (isDone !== undefined) subTask.isDone = isDone;
+        if (status !== undefined) subTask.status = status;
         
         await section.save();
         res.status(200).json({ 

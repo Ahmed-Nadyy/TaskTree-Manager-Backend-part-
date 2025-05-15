@@ -1,10 +1,20 @@
 const mongoose = require('mongoose');
 
 const SubTaskSchema = new mongoose.Schema({
-    name: String,
+    name: { type: String, required: true },
     isDone: { type: Boolean, default: false },
-    status: { type: String, enum: ['pending', 'in progress', 'done'], default: 'pending' }
-});
+    status: { type: String, enum: ['pending', 'in progress', 'done'], default: 'pending' }, // Added status
+    assignedTo: [
+        {
+            email: { type: String }, // Email of the assigned user
+            status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' } // Assignment status
+        }
+    ],
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // New field to store creator's ID
+    description: { type: String, default: '' }, // New field
+    deadline: { type: Date }, // New field
+    priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' } // New field
+}, { timestamps: true });
 
 const TaskSchema = new mongoose.Schema({
     name: { type: String, required: true },

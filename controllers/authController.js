@@ -168,13 +168,10 @@ const registerUser = async (req, res) => {
 
     try {
         // Verify email service first
-        const isEmailServiceReady = await verifyTransporter();
-        if (!isEmailServiceReady) {
-            // Attempt to get a more specific error message if possible
-            // This part is a bit speculative as verifyTransporter itself doesn't return the error object directly
-            // but we can log more details on the server side in verifyTransporter
-            console.error('Email service not ready during user registration for email:', email);
-            return res.status(500).json({ error: "Email service is not available. Please check server logs for more details." });
+        const transporterStatus = await verifyTransporter();
+        if (!transporterStatus.ready) {
+            console.error('Email service not ready during user registration for email:', email, transporterStatus.error);
+            return res.status(500).json({ error: "Email service is not available.", details: transporterStatus.error ? transporterStatus.error.message : "Unknown error", fullError: transporterStatus.error });
         }
 
         // Check if user already exists
@@ -217,10 +214,11 @@ const registerUser = async (req, res) => {
             userId: user._id 
         });
     } catch (error) {
-        console.error('Registration error:', error);
+        console.error('Registration error:', error, error.stack);
         res.status(500).json({ 
             error: "Registration failed", 
-            details: error.message 
+            details: error.message,
+            fullError: error
         });
     }
 };

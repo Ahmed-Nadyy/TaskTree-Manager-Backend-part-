@@ -19,7 +19,15 @@ exports.addSection = async (req, res) => {
 
 exports.getSection = async (req, res) => {
     try {
-        const sections = await Section.find({ userId: req.params.userId });
+        const userId = req.params.userId;
+        const userEmail = req.query.email; // Pass user email as query param from frontend
+        // Find sections where user is the owner OR assigned to any task
+        const sections = await Section.find({
+            $or: [
+                { userId: userId },
+                { "tasks.assignedTo.email": userEmail }
+            ]
+        });
         res.status(200).json(sections);
     } catch (error) {
         res.status(500).json({ message: "Error fetching sections", error });
@@ -263,7 +271,7 @@ exports.markTaskAsDone = async (req, res) => {
 };
 
 exports.addSubTask = async (req, res) => {
-    const { name } = req.body;
+    const { name, assignedTo, description, deadline, priority } = req.body;
     if (!name || typeof name !== 'string' || name.trim() === '') {
         return res.status(400).json({ message: "Subtask name is required and must be a non-empty string." });
     }
@@ -274,21 +282,27 @@ exports.addSubTask = async (req, res) => {
         }
         const task = section.tasks.id(req.params.taskId);
         if (task) {
-            // Push the new subtask
-            task.subTasks.push({ name: name.trim(), isDone: false, status: 'pending' });
-            // When a new subtask is added, make sure the task is marked as not done
-            task.isDone = false;
-            // Save changes to the section (which includes tasks and subtasks)
+            const newSubTask = {
+                name: name.trim(),
+                isDone: false,
+                status: 'pending',
+                assignedTo: assignedTo || [],
+                createdBy: req.user.id, // Add creator's ID
+                description: description || '',
+                deadline: deadline || null,
+                priority: priority || 'Medium'
+            };
+            task.subTasks.push(newSubTask);
+            task.isDone = false; // Mark parent task as not done when a new subtask is added
             await section.save();
-            // Optionally you can return the newly added subtask instead of the whole section
             const addedSubTask = task.subTasks[task.subTasks.length - 1];
             // Send email notifications to assigned users if any
-            if (task.assignedTo && Array.isArray(task.assignedTo) && task.assignedTo.length > 0) {
+            if (addedSubTask.assignedTo && Array.isArray(addedSubTask.assignedTo) && addedSubTask.assignedTo.length > 0) {
                 const { sendSubtaskNotificationEmail } = require('../utils/emailService');
                 const taskName = task.name;
                 const subtaskName = addedSubTask.name;
                 const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${task._id}`;
-                for (const assignee of task.assignedTo) {
+                for (const assignee of addedSubTask.assignedTo) {
                     if (assignee.email) {
                         await sendSubtaskNotificationEmail(assignee.email, taskName, subtaskName, taskLink);
                     }
@@ -309,14 +323,16 @@ exports.addSubTask = async (req, res) => {
 };
 
 exports.updateSubTask = async (req, res) => {
-    const { name, isDone, status } = req.body;
-    // Validate name if provided
+    const { name, isDone, status, assignedTo, description, deadline, priority } = req.body;
     if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
         return res.status(400).json({ message: "Subtask name must be a non-empty string if provided." });
     }
-    // Validate isDone if provided
     if (isDone !== undefined && typeof isDone !== 'boolean'){
         return res.status(400).json({ message: "isDone must be a boolean value if provided." });
+    }
+    // Add validation for new fields if necessary
+    if (priority !== undefined && !['Low', 'Medium', 'High'].includes(priority)) {
+        return res.status(400).json({ message: "Invalid priority value." });
     }
 
     try {
@@ -332,10 +348,13 @@ exports.updateSubTask = async (req, res) => {
         if (!subTask) {
             return res.status(404).json({ message: "Subtask not found for update." });
         }
-        
         if (name !== undefined) subTask.name = name.trim();
         if (isDone !== undefined) subTask.isDone = isDone;
         if (status !== undefined) subTask.status = status;
+        if (assignedTo !== undefined) subTask.assignedTo = assignedTo;
+        if (description !== undefined) subTask.description = description;
+        if (deadline !== undefined) subTask.deadline = deadline;
+        if (priority !== undefined) subTask.priority = priority;
         
         await section.save();
         res.status(200).json({ 
@@ -350,12 +369,24 @@ exports.updateSubTask = async (req, res) => {
 exports.deleteSubTask = async (req, res) => {
     try {
         const section = await Section.findById(req.params.sectionId);
+        if (!section) {
+            return res.status(404).json({ message: "Section not found" });
+        }
         const task = section.tasks.id(req.params.taskId);
-        task.subTasks.id(req.params.subTaskId).remove();
+        if (!task) {
+            return res.status(404).json({ message: "Task not found" });
+        }
+        const subTask = task.subTasks.id(req.params.subTaskId);
+        if (!subTask) {
+            return res.status(404).json({ message: "Subtask not found" });
+        }
+        // Correct way to remove a subdocument
+        subTask.deleteOne(); // or task.subTasks.pull({ _id: req.params.subTaskId });
         await section.save();
-        res.status(200).json(section);
+        res.status(200).json({ message: "Subtask deleted successfully", section }); // Consider returning only relevant data
     } catch (error) {
-        res.status(500).json({ message: "Error deleting subtask", error });
+        console.error("Error deleting subtask:", error);
+        res.status(500).json({ message: "Error deleting subtask", error: error.message });
     }
 };
 

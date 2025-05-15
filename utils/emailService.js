@@ -16,10 +16,10 @@ const verifyTransporter = async () => {
     try {
         await transporter.verify();
         console.log('Email service is ready to send emails');
-        return true;
+        return { ready: true };
     } catch (error) {
         console.error('Email service verification failed. Full error:', error);
-        return false;
+        return { ready: false, error };
     }
 };
 

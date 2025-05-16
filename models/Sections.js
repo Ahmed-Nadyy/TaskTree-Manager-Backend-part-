@@ -1,40 +1,43 @@
 const mongoose = require('mongoose');
 
+// SubTask Schema
 const SubTaskSchema = new mongoose.Schema({
     name: { type: String, required: true },
     isDone: { type: Boolean, default: false },
-    status: { type: String, enum: ['pending', 'in progress', 'done'], default: 'pending' }, // Added status
+    status: { type: String, enum: ['pending', 'in progress', 'done'], default: 'pending' },
     assignedTo: [
         {
-            email: { type: String }, // Email of the assigned user
-            status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' } // Assignment status
+            email: { type: String },
+            status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' }
         }
     ],
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // New field to store creator's ID
-    description: { type: String, default: '' }, // New field
-    deadline: { type: Date }, // New field
-    priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' } // New field
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    description: { type: String, default: '' },
+    deadline: { type: Date },
+    priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' }
 }, { timestamps: true });
 
+// Task Schema
 const TaskSchema = new mongoose.Schema({
     name: { type: String, required: true },
     description: String,
     isDone: { type: Boolean, default: false },
-    priority: { type: String, enum: ['low', 'medium', 'high'], default: 'low' , required: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Use only this
+    priority: { type: String, enum: ['low', 'medium', 'high'], default: 'low', required: true },
     isImportant: { type: Boolean, default: false, required: true },
-    dueDate: {type:Date, required: false},
+    dueDate: { type: Date },
     tags: [String],
     subTasks: [SubTaskSchema],
     assignedTo: [{
         email: { type: String },
         status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' }
     }],
-    creator: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     lastNotified: { type: Date }
-});
+}, { timestamps: true }); // Optional but helpful
 
+// Section Schema
 const SectionSchema = new mongoose.Schema({
-    userId: mongoose.Schema.Types.ObjectId,
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     name: String,
     tasks: [TaskSchema],
     isPublic: { type: Boolean, default: false },
@@ -44,7 +47,7 @@ const SectionSchema = new mongoose.Schema({
         email: { type: String },
         accessLevel: { type: String, enum: ['read', 'write'], default: 'read' }
     }]
-});
+}, { timestamps: true });
 
 // Export the model
 module.exports = mongoose.model("Section", SectionSchema);

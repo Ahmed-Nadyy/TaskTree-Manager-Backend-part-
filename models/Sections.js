@@ -46,7 +46,8 @@ const SectionSchema = new mongoose.Schema({
     sharedWith: [{
         email: { type: String },
         accessLevel: { type: String, enum: ['read', 'write'], default: 'read' }
-    }]
+    }],
+    workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace' }
 }, { timestamps: true });
 
 // Export the model

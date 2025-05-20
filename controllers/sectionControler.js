@@ -3,13 +3,38 @@ const { v4: uuidv4 } = require('uuid');
 const { sendTaskAssignmentEmail } = require('../utils/emailService');
 
 exports.addSection = async (req, res) => {
-    const { userId, name } = req.body;
+    const { userId, name, workspaceId } = req.body;
     if (!name || typeof name !== 'string' || name.trim() === '') {
         return res.status(400).json({ message: "Section name is required and must be a non-empty string." });
     }
     try {
-        const section = new Section({ userId, name: name.trim(), tasks: [] });
+        // If no workspaceId is provided, find the default workspace
+        let targetWorkspaceId = workspaceId;
+        if (!targetWorkspaceId) {
+            const Workspace = require('../models/Workspace');
+            const defaultWorkspace = await Workspace.findOne({ userId, isDefault: true });
+            if (defaultWorkspace) {
+                targetWorkspaceId = defaultWorkspace._id;
+            }
+        }
+
+        const section = new Section({ 
+            userId, 
+            name: name.trim(), 
+            tasks: [],
+            workspace: targetWorkspaceId 
+        });
         await section.save();
+        
+        // Add section to workspace
+        if (targetWorkspaceId) {
+            const Workspace = require('../models/Workspace');
+            await Workspace.findByIdAndUpdate(
+                targetWorkspaceId,
+                { $push: { sections: section._id } }
+            );
+        }
+        
         res.status(201).json(section);
     } catch (error) {
         //console.error("Error creating section:", error); 
@@ -21,13 +46,22 @@ exports.getSection = async (req, res) => {
     try {
         const userId = req.params.userId;
         const userEmail = req.query.email; // Pass user email as query param from frontend
-        // Find sections where user is the owner OR assigned to any task
-        const sections = await Section.find({
+        const workspaceId = req.query.workspaceId;
+        
+        let query = {
             $or: [
                 { userId: userId },
                 { "tasks.assignedTo.email": userEmail }
             ]
-        });
+        };
+        
+        // Add workspace filter if workspaceId is provided
+        if (workspaceId) {
+            query.workspace = workspaceId;
+        }
+        
+        // Find sections where user is the owner OR assigned to any task
+        const sections = await Section.find(query);
         res.status(200).json(sections);
     } catch (error) {
         res.status(500).json({ message: "Error fetching sections", error });
@@ -71,9 +105,7 @@ exports.addTask = async (req, res) => {    const { name, description, priority, 
         const section = await Section.findById(req.params.id);
         if (!section) {
             return res.status(404).json({ message: "Section not found when trying to add task." });
-        }
-
-        const newTask = {
+        }        const newTask = {
             name: name.trim(),
             description,
             isDone: false,
@@ -82,7 +114,8 @@ exports.addTask = async (req, res) => {    const { name, description, priority, 
             dueDate: dueDate || null,
             tags: tags || [],
             assignedTo: assignedTo || [],
-            subTasks: []
+            subTasks: [],
+            createdBy: req.user.id // Add creator's ID
         };
 
         section.tasks.push(newTask);

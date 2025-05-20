@@ -7,6 +7,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const workspaceRoutes = require('./routes/workspaceRoutes');
 const sectionRoutes = require('./routes/sectionRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const subTaskRoutes = require('./routes/subTaskRoutes');
@@ -71,7 +72,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/subtasks', subTaskRoutes);
-
+app.use('/api/workspaces', workspaceRoutes);
 // Global error handler
 app.use((err, req, res, next) => {
     console.error(err.stack);

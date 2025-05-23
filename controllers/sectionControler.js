@@ -126,7 +126,9 @@ exports.addTask = async (req, res) => {    const { name, description, priority, 
 
         // Send email notifications if assignees are provided
         if (addedTask.assignedTo && Array.isArray(addedTask.assignedTo) && addedTask.assignedTo.length > 0) {
-            const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${addedTask._id}`;
+            // const taskLink = `${process.env.CLIENT_URL}task/${section.userId}/${section._id}/${addedTask._id}`;
+            const taskLink = `${process.env.CLIENT_URL}sections/${section._id}/tasks/${addedTask._id}/subtasks`;
+
             console.log('Task created, sending emails to:', addedTask.assignedTo.map(a => a.email));
             for (const assignee of addedTask.assignedTo) {
                 if (assignee.email) {
@@ -334,7 +336,9 @@ exports.addSubTask = async (req, res) => {
                 const { sendSubtaskNotificationEmail } = require('../utils/emailService');
                 const taskName = task.name;
                 const subtaskName = addedSubTask.name;
-                const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${task._id}`;
+                const taskLink = `${process.env.CLIENT_URL}sections/${section._id}/tasks/${task._id}/subtasks`;
+                // const taskLink = `${process.env.CLIENT_URL}/task/${section.userId}/${section._id}/${task._id}`;
+
                 for (const assignee of addedSubTask.assignedTo) {
                     if (assignee.email) {
                         await sendSubtaskNotificationEmail(assignee.email, taskName, subtaskName, taskLink);
